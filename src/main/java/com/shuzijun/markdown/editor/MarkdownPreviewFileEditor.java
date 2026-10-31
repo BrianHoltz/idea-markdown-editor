@@ -171,7 +171,7 @@ public class MarkdownPreviewFileEditor extends UserDataHolderBase implements Fil
         settingsConnection.subscribe(UISettingsListener.TOPIC, settings -> refreshAppearance());
         settingsConnection.subscribe(MarkdownPreviewSettings.ChangeListener.TOPIC, settings -> refreshAppearance());
         if (myPanel != null && myDocument != null) {
-            new ExternalFileSync(myFile, myDocument, myPanel, myHtmlPanelWrapper, this);
+            new ExternalFileSync(myDocument, myPanel, this);
         }
 
     }

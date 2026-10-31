@@ -44,6 +44,7 @@
                                  instance="com.shuzijun.markdown.setting.SettingConfigurable"/>
         <errorHandler implementation="com.shuzijun.markdown.listener.ErrorReportHandler"/>
         <postStartupActivity implementation="com.shuzijun.markdown.listener.SupportCheck"/>
+        <postStartupActivity implementation="com.shuzijun.markdown.editor.VisibleMarkdownRefresh"/>
         <applicationService
                 serviceImplementation="com.shuzijun.markdown.controller.FileApplicationService" />
     </extensions>

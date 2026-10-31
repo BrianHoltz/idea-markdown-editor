@@ -73,15 +73,13 @@ test('initial load errors do not trigger background replacement', () => {
     assert.equal(h.requests.length, 0)
 })
 
-test('editor wires lifecycle-bound document notifications and visible-file checks', () => {
+test('editor wires lifecycle-bound document notifications', () => {
     const editor = fs.readFileSync(path.join(__dirname, '../src/main/java/com/shuzijun/markdown/editor/MarkdownPreviewFileEditor.java'), 'utf8')
-    assert.match(editor, /new ExternalFileSync\(myFile, myDocument, myPanel, myHtmlPanelWrapper, this\)/)
+    assert.match(editor, /new ExternalFileSync\(myDocument, myPanel, this\)/)
     const syncPath = path.join(__dirname, '../src/main/java/com/shuzijun/markdown/editor/ExternalFileSync.java')
     assert.ok(fs.existsSync(syncPath), 'Missing external-file synchronizer')
     const sync = fs.readFileSync(syncPath, 'utf8')
     assert.match(sync, /addDocumentListener/)
-    assert.match(sync, /file\.refresh\(true, false\)/)
-    assert.match(sync, /isShowing\(\)/)
     assert.match(sync, /Disposer\.register/)
     assert.doesNotMatch(template, /saveTime = Date\.now\(\) \+ 5000;/)
 })
