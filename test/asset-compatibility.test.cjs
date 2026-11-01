@@ -24,7 +24,7 @@ test('bundled Lute provides every Vditor initialization method', () => {
 test('all bundled template assets share the cache-isolated resource prefix', () => {
     const template = fs.readFileSync(path.join(resources, 'template/default.html'), 'utf8')
     assert.doesNotMatch(template, /\{\{service\}\}resources\/vditor/)
-    assert.equal((template.match(/\{\{service\}\}\{\{resources\}\}vditor/g) || []).length, 5)
+    assert.equal((template.match(/\{\{service\}\}\{\{resources\}\}vditor/g) || []).length, 8)
     assert.match(template, /vditorThemeCDN = .*vditorCDN \+ "\/dist\/css\/content-theme"/)
     const controller = fs.readFileSync(path.join(__dirname, '../src/main/java/com/shuzijun/markdown/controller/ResourcesController.java'), 'utf8')
     assert.match(controller, /return "resources\/" \+ LAST_MODIFIED \+ "\/"/)
@@ -42,7 +42,8 @@ test('rich text follows preview typography and retains wrapping tables', () => {
     assert.match(table, /font: inherit;/)
     const cells = css.match(/\.vditor-reset table td,\s*\.vditor-reset table th \{([^}]+)\}/)[1]
     assert.match(cells, /white-space: normal;/)
-    assert.match(cells, /overflow-wrap: anywhere;/)
+    assert.match(cells, /overflow-wrap: break-word;/)
+    assert.match(cells, /word-break: normal;/)
     const styles = fs.readFileSync(path.join(__dirname, '../src/main/java/com/shuzijun/markdown/editor/MarkdownPreviewFileEditor.java'), 'utf8')
     assert.match(styles, /\.vditor-sv,\.vditor-reset code,\.vditor-reset kbd\{/)
     assert.doesNotMatch(styles, /sb\.append\("\.vditor-reset \{font-size:/)
@@ -86,4 +87,10 @@ test('dark code blocks use a readable dark highlight palette', () => {
 test('toolbar visibility control inherits IDEA theme variables on the body', () => {
     const editor = fs.readFileSync(path.join(__dirname, '../src/main/java/com/shuzijun/markdown/editor/MarkdownPreviewFileEditor.java'), 'utf8')
     assert.match(editor, /\.vditor--dark,body"\s*:\s*"\.vditor,body"/)
+})
+
+test('document canvas uses the editor background, not the tinted tool-window panel', () => {
+    const editor = fs.readFileSync(path.join(__dirname, '../src/main/java/com/shuzijun/markdown/editor/MarkdownPreviewFileEditor.java'), 'utf8')
+    assert.match(editor, /Color defaultBackground = editorColorsScheme\.getDefaultBackground\(\);/)
+    assert.match(editor, /--toolbar-background-color:\"\)\.append\(toHexColor\(JBColor\.background\(\)\)\)/)
 })

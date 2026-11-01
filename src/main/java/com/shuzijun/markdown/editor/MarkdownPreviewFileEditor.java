@@ -9,6 +9,7 @@ import com.intellij.ide.structureView.StructureViewFactory;
 import com.intellij.ide.structureView.StructureViewModel;
 import com.intellij.ide.structureView.StructureViewModelBase;
 import com.intellij.ide.structureView.StructureViewTreeElement;
+import com.intellij.ide.ui.LafManagerListener;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.ide.ui.UISettingsListener;
 import com.intellij.ide.util.PropertiesComponent;
@@ -27,6 +28,7 @@ import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorLocation;
 import com.intellij.openapi.fileEditor.FileEditorState;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.UserDataHolderBase;
@@ -75,6 +77,8 @@ import java.util.Locale;
  */
 public class MarkdownPreviewFileEditor extends UserDataHolderBase implements FileEditor {
 
+    private static final com.intellij.openapi.util.Key<String> CONTEXT_SELECTION = com.intellij.openapi.util.Key.create("brian.editor.selection.v1");
+
     private static final Logger LOG = Logger.getInstance(MarkdownPreviewFileEditor.class);
 
     static final String URL_PATH_OTHER_SAFE_CHARS_LACKING_PLUS =
@@ -93,6 +97,7 @@ public class MarkdownPreviewFileEditor extends UserDataHolderBase implements Fil
 
     private final JBPanel toolbarPanel = new JBPanel(new FlowLayout(FlowLayout.LEFT, 4, 4));
     private final JBTextField searchField = new JBTextField();
+    private final JBLabel searchCount = new JBLabel();
 
     private final Url servicePath = BuiltInServerManager.getInstance().addAuthToken(Urls.parseEncoded("http://localhost:" + BuiltInServerManager.getInstance().getPort() + PreviewStaticServer.PREFIX));
     private final String templateHtmlFile = "template/default.html";
@@ -104,15 +109,26 @@ public class MarkdownPreviewFileEditor extends UserDataHolderBase implements Fil
         myDocument = FileDocumentManager.getInstance().getDocument(myFile);
         myHtmlPanelWrapper = new JPanel(new BorderLayout());
         isPresentableUrl = project.getPresentableUrl() != null;
+        Disposer.register(this, ApplicationManager.getApplication().getService(FileApplicationService.class)
+                .registerVirtualFile(myFile.getPath(), isPresentableUrl ? project.getPresentableUrl() : project.getName(), myFile));
         String url = UrlEscapers.urlFragmentEscaper().escape(URLUtil.FILE_PROTOCOL + URLUtil.SCHEME_SEPARATOR + FileUtils.separator() + myFile.getPath());
         MarkdownHtmlPanel tempPanel = null;
         try {
             tempPanel = new MarkdownHtmlPanel(url, project, true);
+            tempPanel.setContextSelectionListener(value -> {
+                if (!myProject.isDisposed() && myFile.isValid()) myFile.putUserData(
+                    CONTEXT_SELECTION, value.isEmpty() ? null : value);
+            });
             tempPanel.loadMyHTML(createHtml(isPresentableUrl, tempPanel), url);
             tempPanel.setZoomLevel(UISettings.getInstance().getCurrentIdeScale());
             myHtmlPanelWrapper.add(tempPanel.getComponent(), BorderLayout.CENTER);
 
             MarkdownHtmlPanel finalTempPanel = tempPanel;
+            finalTempPanel.setSearchCountListener((query, total) -> {
+                if (!searchField.getText().equals(query)) return;
+                searchCount.setText(query.isEmpty() ? "" : total + " matches");
+                searchCount.getAccessibleContext().setAccessibleName(searchCount.getText());
+            });
             toolbarPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, JBColor.border()));
             searchField.setPreferredSize(new Dimension(260, 28));
             searchField.putClientProperty("JTextField.placeholderText", "Search in Markdown");
@@ -127,9 +143,10 @@ public class MarkdownPreviewFileEditor extends UserDataHolderBase implements Fil
             JButton nextButton = createSearchButton("Next", "Next match", () -> finalTempPanel.browserFind(searchField.getText(), true));
             JButton closeButton = createSearchButton("Close", "Close search", () -> {
                 searchField.setText("");
-                toolbarPanel.setVisible(false);
+                visibleToolbarPanel(false);
             });
             toolbarPanel.add(searchField);
+            toolbarPanel.add(searchCount);
             toolbarPanel.add(previousButton);
             toolbarPanel.add(nextButton);
             toolbarPanel.add(closeButton);
@@ -148,16 +165,22 @@ public class MarkdownPreviewFileEditor extends UserDataHolderBase implements Fil
         myPanel = tempPanel;
         myHtmlPanelWrapper.repaint();
 
-        FileApplicationService fileApplicationService = ApplicationManager.getApplication().getService(FileApplicationService.class);
-        fileApplicationService.putVirtualFile(myFile.getPath(), isPresentableUrl ? project.getPresentableUrl() : project.getName(), myFile);
-
         MessageBusConnection settingsConnection = ApplicationManager.getApplication().getMessageBus().connect(this);
+        settingsConnection.subscribe(LafManagerListener.TOPIC, manager -> refreshAppearance());
         settingsConnection.subscribe(EditorColorsManager.TOPIC, scheme -> refreshAppearance());
         settingsConnection.subscribe(UISettingsListener.TOPIC, settings -> refreshAppearance());
         settingsConnection.subscribe(MarkdownPreviewSettings.ChangeListener.TOPIC, settings -> refreshAppearance());
+        if (myPanel != null && myDocument != null) {
+            new ExternalFileSync(myDocument, myPanel, this);
+        }
 
     }
 
+
+    @Override
+    public void selectNotify() {
+        refreshAppearance();
+    }
 
     @Override
     public @NotNull JComponent getComponent() {
@@ -166,6 +189,7 @@ public class MarkdownPreviewFileEditor extends UserDataHolderBase implements Fil
 
     @Override
     public @Nullable JComponent getPreferredFocusedComponent() {
+        if (toolbarPanel.isVisible()) return searchField;
         return myPanel != null ? myPanel.getComponent() : null;
     }
 
@@ -285,8 +309,7 @@ public class MarkdownPreviewFileEditor extends UserDataHolderBase implements Fil
 
     @Override
     public void dispose() {
-        ApplicationManager.getApplication().getService(FileApplicationService.class)
-                .removeVirtualFile(myFile.getPath(), isPresentableUrl ? myProject.getPresentableUrl() : myProject.getName());
+        myFile.putUserData(CONTEXT_SELECTION, null);
         if (myPanel != null) {
             Disposer.dispose(myPanel);
         }
@@ -359,7 +382,7 @@ public class MarkdownPreviewFileEditor extends UserDataHolderBase implements Fil
         try {
             EditorColorsScheme editorColorsScheme = EditorColorsManager.getInstance().getGlobalScheme();
             boolean darkTheme = isDarkTheme();
-            Color defaultBackground = JBColor.background();
+            Color defaultBackground = editorColorsScheme.getDefaultBackground();
 
             Color text = UIManager.getColor("Label.foreground");
             if (text == null) {
@@ -399,7 +422,7 @@ public class MarkdownPreviewFileEditor extends UserDataHolderBase implements Fil
             Color borderColor = JBColor.border();
             Color codeBackground = darkTheme ? new Color(255, 255, 255, 18) : new Color(0, 0, 0, 8);
             Color quoteBackground = darkTheme ? new Color(255, 255, 255, 12) : new Color(0, 0, 0, 6);
-            sb.append(".vditor-reset a{color:").append(toHexColor(linkColor)).append(";}");
+            sb.append(".vditor{--markdown-preview-link-color:").append(toHexColor(linkColor)).append(";}");
             sb.append(".vditor-reset h1,.vditor-reset h2,.vditor-reset h3,.vditor-reset h4,.vditor-reset h5,.vditor-reset h6{");
             if (text != null) {
                 sb.append("color:").append(toHexColor(text)).append(";");
@@ -436,10 +459,23 @@ public class MarkdownPreviewFileEditor extends UserDataHolderBase implements Fil
 
     public void visibleToolbarPanel(boolean visible) {
         toolbarPanel.setVisible(visible);
+        myHtmlPanelWrapper.revalidate();
+        myHtmlPanelWrapper.repaint();
         if (visible) {
-            searchField.requestFocus();
+            ApplicationManager.getApplication().invokeLater(() -> {
+                if (myProject.isDisposed() || !toolbarPanel.isShowing()) return;
+                // Windowed JCEF owns native focus independently of Swing on macOS.
+                // Release it before transferring focus, after pending IDE transfers settle.
+                myPanel.getCefBrowser().setFocus(false);
+                IdeFocusManager.getInstance(myProject).doWhenFocusSettlesDown(() -> {
+                    if (myProject.isDisposed() || !toolbarPanel.isShowing()) return;
+                    IdeFocusManager.getInstance(myProject).requestFocus(searchField, true);
+                    searchField.selectAll();
+                });
+            });
         } else {
             searchField.setText("");
+            searchCount.setText("");
         }
     }
 

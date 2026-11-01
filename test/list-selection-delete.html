@@ -1,0 +1,29 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Markdown list-selection regression</title>
+<link rel="stylesheet" href="../src/main/resources/vditor/dist/index.css">
+<button id="run">Run regression</button><pre id="results"></pre>
+<div id="editor"></div>
+<script src="../src/main/resources/vditor/dist/index.js"></script>
+<script src="../src/main/resources/vditor/list-backspace.js"></script>
+<script src="list-selection-delete.browser.js"></script>
+<script>
+// Serve the repository root, then open this fixture in Chrome Canary.
+window.original = '- Report Code Puppy history bloat and maintenance health\n' +
+    '  - Show estimated on-disk history size on the expanded project line.\n' +
+    '  - Other useful signals: poll latency, source freshness and read failures.\n' +
+    '- Optional conversation-naming skill\n' +
+    '  - A name-conversation skill could suggest a short, task-specific title.\n' +
+    '  - Invoke it explicitly in the native harness, not through Langley.\n'
+window.editor = new Vditor('editor', {
+    cdn: new URL('../src/main/resources/vditor', location.href).href,
+    mode: 'wysiwyg', cache: {enable: false}, value: original,
+    after() { window.ready = true }
+})
+document.addEventListener('keydown', fixListBackspace, true)
+document.getElementById('run').onclick = async () => {
+    const output = document.getElementById('results')
+    try { output.textContent = (await testListSelectionDelete()).join('\n') }
+    catch (error) { output.textContent = error.stack }
+}
+</script>

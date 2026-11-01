@@ -210,7 +210,29 @@ body.markdown-raw-html-hidden .markdown-html-only {
 .vditor-ir pre.vditor-reset {
     font-family: var(--markdown-preview-font-family) !important;
     font-size: var(--markdown-preview-font-size) !important;
+    font-variant-ligatures: normal;
     line-height: 1.4 !important;
+}
+
+/* Vditor uses spans as well as anchors for editable links. Match preview
+   decoration without changing the editor's navigation or editing behavior. */
+.vditor .vditor-reset :is(a[href], [data-type="a"], .vditor-ir__link, [data-type="link-ref"], [data-type="footnotes-ref"]) {
+    color: var(--markdown-preview-link-color);
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.vditor .vditor-reset :is(a[href], [data-type="a"], .vditor-ir__link, [data-type="link-ref"], [data-type="footnotes-ref"]):is(:hover, :active, :focus-visible) {
+    text-decoration: underline;
+}
+
+.vditor .vditor-reset :is(a[href], [data-type="a"], .vditor-ir__link, [data-type="link-ref"], [data-type="footnotes-ref"]):focus-visible {
+    outline: 1px solid currentColor;
+    outline-offset: 2px;
+}
+
+.vditor .vditor-reset :is(a[href], [data-type="a"], .vditor-ir__link, [data-type="link-ref"], [data-type="footnotes-ref"]) code {
+    color: inherit;
 }
 
 .vditor-ir pre.vditor-reset,
@@ -261,7 +283,9 @@ body.markdown-raw-html-hidden .markdown-html-only {
 .vditor-reset table td,
 .vditor-reset table th {
     white-space: normal;
-    overflow-wrap: anywhere;
+    /* Preserve word widths during auto layout; only break long tokens as a fallback. */
+    overflow-wrap: break-word;
+    word-break: normal;
 }
 
 .vditor-reset table img {

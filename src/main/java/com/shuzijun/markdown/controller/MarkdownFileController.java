@@ -11,6 +11,8 @@ import com.shuzijun.markdown.model.MarkdownResponse;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.FullHttpResponse;
+import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.QueryStringDecoder;
 import io.netty.handler.codec.http.multipart.Attribute;
 import io.netty.handler.codec.http.multipart.HttpPostRequestDecoder;
@@ -45,10 +47,23 @@ public class MarkdownFileController extends BaseController {
         FileApplicationService fileApplicationService = ApplicationManager.getApplication().getService(FileApplicationService.class);
         VirtualFile virtualFile = fileApplicationService.getVirtualFile(fileParameter, StringUtils.isNotBlank(projectUrlParameter) ? projectUrlParameter : projectNameParameter);
         if (virtualFile == null) {
-            return fillHtmlResponse("unable to to find file " + fileParameter);
+            return fileError(HttpResponseStatus.NOT_FOUND, "File is not open in a Markdown editor: " + fileParameter);
         }
         Document document = ApplicationManager.getApplication().runReadAction((Computable<Document>) () -> FileDocumentManager.getInstance().getDocument(virtualFile));
-        return fillHtmlResponse(document.getText());
+        if (document == null) {
+            return fileError(HttpResponseStatus.CONFLICT, "File has no text document: " + fileParameter);
+        }
+        FullHttpResponse response = fillHtmlResponse(ApplicationManager.getApplication().runReadAction((Computable<String>) document::getText));
+        response.headers().set(HttpHeaderNames.CACHE_CONTROL, "no-store");
+        return response;
+    }
+
+    private FullHttpResponse fileError(HttpResponseStatus status, String message) {
+        LOG.warn(message);
+        FullHttpResponse response = fillJsonResponse(MarkdownResponse.error(message).toString());
+        response.setStatus(status);
+        response.headers().set(HttpHeaderNames.CACHE_CONTROL, "no-store");
+        return response;
     }
 
     @Override
@@ -59,9 +74,12 @@ public class MarkdownFileController extends BaseController {
         FileApplicationService fileApplicationService = ApplicationManager.getApplication().getService(FileApplicationService.class);
         VirtualFile virtualFile = fileApplicationService.getVirtualFile(fileParameter, StringUtils.isNotBlank(projectUrlParameter) ? projectUrlParameter : projectNameParameter);
         if (virtualFile == null) {
-            return fillJsonResponse(MarkdownResponse.error("unable to to find file " + fileParameter).toString());
+            return fileError(HttpResponseStatus.NOT_FOUND, "File is not open in a Markdown editor: " + fileParameter);
         }
         Document document = ApplicationManager.getApplication().runReadAction((Computable<Document>) () -> FileDocumentManager.getInstance().getDocument(virtualFile));
+        if (document == null) {
+            return fileError(HttpResponseStatus.CONFLICT, "File has no text document: " + fileParameter);
+        }
         if (!document.isWritable()) {
             return fillJsonResponse(MarkdownResponse.error("Document cannot be modified").toString());
         }

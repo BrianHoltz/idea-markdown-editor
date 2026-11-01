@@ -4,6 +4,9 @@
     <link rel="stylesheet" href="{{service}}{{resources}}vditor/style.css?{{serverToken}}"/>
     <script src="{{service}}{{resources}}vditor/dist/index.min.js?{{serverToken}}"></script>
     <script src="{{service}}{{resources}}vditor/jquery-3.6.0.min.js?{{serverToken}}"></script>
+    <script src="{{service}}{{resources}}vditor/search-count.js?{{serverToken}}"></script>
+    <script src="{{service}}{{resources}}vditor/list-backspace.js?{{serverToken}}"></script>
+    <script src="{{service}}{{resources}}vditor/context-selection.js?{{serverToken}}"></script>
 </head>
 <body class="body">
 <div id="vditor" class="vditor vditor--fullscreen"></div>
@@ -47,7 +50,10 @@
     const vditorThemeCDN = userTemplate ? "{{service}}assets/vditor/content-theme" : vditorCDN + "/dist/css/content-theme";
     let initError = true;
     let fileValue = "";
-    let saveTime = Date.now();
+    let saveTime = 0;
+    let externalRefreshTimer = null;
+    let externalRefreshInFlight = false;
+    let externalRefreshPending = false;
     let darcula = "{{darcula}}" === "true";
     let ideaThemeReady = false;
     const appearance = {
@@ -65,6 +71,7 @@
             });
         }
         appendSyncedTip(!initError);
+        if (initError) vditor.tip("Unable to load file. Use Reload to retry; saving is disabled.", 0);
         vditor.vditor.toolbar.elements.export.querySelectorAll(".vditor-hint")[0].innerHTML = "<button onclick='exportFile(\"pdf\")'>PDF</button>\n<button onclick='exportFile(\"html\")'>HTML</button>"
         let infoHtml = vditor.vditor.toolbar.elements.info.querySelectorAll('button')[0].outerHTML;
         vditor.vditor.toolbar.elements.info.querySelectorAll('button')[0].remove()
@@ -122,7 +129,7 @@
             } else {
                 fileValue = md;
                 syncedTip(true, data)
-                saveTime = Date.now() + 5000;
+                saveTime = 0;
             }
         }).fail(function () {
             updateSyncState("failed");
@@ -130,19 +137,35 @@
         })
     }
 
-    function editFocus(md) {
+    function editFocus() {
+        if (initError || vditor.getValue() !== fileValue) return;
         if (Date.now() <= saveTime) {
+            clearTimeout(externalRefreshTimer);
+            externalRefreshTimer = setTimeout(editFocus, saveTime - Date.now() + 1);
             return;
         }
-        $.get(fileUrl, function (data) {
-            if (md !== data) {
-                vditor.setValue(data);
-                fileValue = vditor.getValue();
-                syncedTip(true, data)
+        if (externalRefreshInFlight) {
+            externalRefreshPending = true;
+            return;
+        }
+        const baseline = fileValue;
+        externalRefreshInFlight = true;
+        $.ajax({url: fileUrl, async: true, cache: false, success(data) {
+            // A response must not replace typing or a save completed since this read began.
+            if (fileValue !== baseline || vditor.getValue() !== baseline || data === baseline) return;
+            const x = window.scrollX, y = window.scrollY;
+            vditor.setValue(data);
+            fileValue = vditor.getValue();
+            window.scrollTo(x, y);
+            syncedTip(true, fileValue);
+        }}).always(function () {
+            externalRefreshInFlight = false;
+            if (externalRefreshPending) {
+                externalRefreshPending = false;
+                clearTimeout(externalRefreshTimer);
+                externalRefreshTimer = setTimeout(editFocus, 75);
             }
-        }).fail(function () {
-            vditor.tip("Get file request error", 0);
-        })
+        });
     }
 
     function editInput(md) {
@@ -155,8 +178,7 @@
             value = data;
             initError = false;
         }).fail(function () {
-            vditor.tip("Get file request error", 0);
-            value = "Get file request error,Please reload";
+            // Vditor is not constructed yet. Keep errors out of document content.
             initError = true;
         })
         return value;
@@ -196,10 +218,6 @@
     let reloadArmTimer = null;
 
     function reloadFile() {
-        if (initError) {
-            vditor.tip("Get init file request error, Don't reload.", 1000);
-            return;
-        }
         if (vditor.getValue() !== fileValue) {
             if (!reloadArmed) {
                 reloadArmed = true;
@@ -214,9 +232,10 @@
             clearTimeout(reloadArmTimer);
         }
         $.get(fileUrl, function (data) {
+            initError = false;
             vditor.setValue(data);
             fileValue = vditor.getValue();
-            saveTime = Date.now() + 5000;
+            saveTime = 0;
             syncedTip(true, data);
         }).fail(function () {
             vditor.tip("Get file request error", 0);
@@ -622,6 +641,8 @@
         }, true);
     }
 
+    document.addEventListener('keydown', fixListBackspace, true);
+
     const vditor = new Vditor('vditor', {
         "theme": darcula ? "dark" : "light",
         "height": document.documentElement.clientHeight,
@@ -715,7 +736,7 @@
         "upload": {
             "url": uploadUrl,
             format(files, responseText) {
-                saveTime = Date.now() + 5000;
+                saveTime = 0;
                 return responseText;
             }
         },

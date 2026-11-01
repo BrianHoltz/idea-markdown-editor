@@ -57,6 +57,7 @@ import java.util.*;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
+import java.util.function.BiConsumer;
 
 /**
  * @author shuzijun
@@ -79,6 +80,11 @@ public class MarkdownHtmlPanel extends JCEFHtmlPanel {
     private final CefDisplayHandler displayHandler;
     private final JBCefJSQuery selectValueJSQuery;
     private final JBCefJSQuery appearanceJSQuery;
+    private final JBCefJSQuery searchCountJSQuery;
+    private final JBCefJSQuery contextSelectionJSQuery;
+    private java.util.function.Consumer<String> contextSelectionListener = value -> {};
+    private BiConsumer<String, Integer> searchCountListener = (query, total) -> {};
+    private String lastSearchText = "";
 
     private final boolean isFileEditor;
     private final String url;
@@ -207,6 +213,21 @@ public class MarkdownHtmlPanel extends JCEFHtmlPanel {
             CopyPasteManager.getInstance().setContents(new StringSelection(value));
             return null;
         });
+        contextSelectionJSQuery = JBCefJSQuery.create((JBCefBrowserBase)this);
+        contextSelectionJSQuery.addHandler(value -> {
+            if (value.length() <= 4096) ApplicationManager.getApplication().invokeLater(() -> contextSelectionListener.accept(value));
+            return null;
+        });
+        searchCountJSQuery = JBCefJSQuery.create((JBCefBrowserBase)this);
+        searchCountJSQuery.addHandler(value -> {
+            int separator = value.indexOf('\n');
+            if (separator >= 0) {
+                int total = Integer.parseInt(value.substring(0, separator));
+                String query = value.substring(separator + 1);
+                ApplicationManager.getApplication().invokeLater(() -> searchCountListener.accept(query, total));
+            }
+            return null;
+        });
         appearanceJSQuery = JBCefJSQuery.create((JBCefBrowserBase)this);
         appearanceJSQuery.addHandler(value -> {
             String[] values = value.split(",", -1);
@@ -258,6 +279,8 @@ public class MarkdownHtmlPanel extends JCEFHtmlPanel {
         getJBCefClient().removeDisplayHandler(displayHandler, getCefBrowser());
         Disposer.dispose(selectValueJSQuery);
         Disposer.dispose(appearanceJSQuery);
+        Disposer.dispose(searchCountJSQuery);
+        Disposer.dispose(contextSelectionJSQuery);
         super.dispose();
     }
 
@@ -376,10 +399,22 @@ public class MarkdownHtmlPanel extends JCEFHtmlPanel {
         String saveAppearance = "function jsSaveAppearance(toolbarHidden, rawHtmlHidden){\n" +
                 appearanceJSQuery.inject("[toolbarHidden, rawHtmlHidden].join(',')") +
                 "    }\n";
-        return savaTime + copy + cut + paste + blur + saveAppearance;
+        return savaTime + copy + cut + paste + blur + saveAppearance + "function jsPublishContextSelection(value){" + contextSelectionJSQuery.inject("value") + "}\n";
+    }
+
+    public void setContextSelectionListener(java.util.function.Consumer<String> listener) { contextSelectionListener = listener; }
+
+    public void setSearchCountListener(BiConsumer<String, Integer> listener) {
+        searchCountListener = listener;
     }
 
     public void browserFind(String txt, boolean forward) {
+        boolean findNext = txt.equals(lastSearchText);
+        lastSearchText = txt;
+        String countScript = "(() => { const query = " + toJsString(txt)
+                + "; const result = countMarkdownMatches(query) + '\\n' + query; "
+                + searchCountJSQuery.inject("result") + " })();";
+        getCefBrowser().executeJavaScript(countScript, getCefBrowser().getURL(), 0);
         if (StringUtils.isEmpty(txt)) {
             getCefBrowser().stopFinding(true);
             return;
@@ -388,11 +423,11 @@ public class MarkdownHtmlPanel extends JCEFHtmlPanel {
 
         try {
             Method findMethod = CefBrowser.class.getMethod("find",String.class,boolean.class,boolean.class,boolean.class);
-            findMethod.invoke(cefBrowser,txt, forward, false, true);
+            findMethod.invoke(cefBrowser,txt, forward, false, findNext);
         } catch (NoSuchMethodException e) {
             try {
                 Method findMethod = CefBrowser.class.getMethod("find",int.class,String.class,boolean.class,boolean.class,boolean.class);
-                findMethod.invoke(cefBrowser,1, txt, forward, false, true);
+                findMethod.invoke(cefBrowser,1, txt, forward, false, findNext);
             } catch (Exception ex) {
                 LOG.error(ex);
             }
@@ -402,11 +437,9 @@ public class MarkdownHtmlPanel extends JCEFHtmlPanel {
     }
 
     private static boolean offScreenRendering(boolean isFileEditor) {
-        /*if (!isFileEditor) {
-            return false;
-        }
-        return Registry.is("ide.browser.jcef.markdownView.osr.enabled", true);*/
-        return false;
+        // A windowed macOS browser can retain native text input after Swing focuses search.
+        // OSR routes editor input through Swing, sharing one keyboard focus owner.
+        return isFileEditor;
     }
 
     class MyMultiPanel extends MultiPanel implements DataProvider {
