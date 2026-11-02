@@ -76,6 +76,7 @@
 .markdown-toolbar-tray > .vditor-toolbar__item {
     float: none;
     flex: 0 0 28px;
+    padding: 0;
 }
 
 .markdown-toolbar > .vditor-toolbar__divider,

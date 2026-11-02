@@ -94,3 +94,10 @@ test('document canvas uses the editor background, not the tinted tool-window pan
     assert.match(editor, /Color defaultBackground = editorColorsScheme\.getDefaultBackground\(\);/)
     assert.match(editor, /--toolbar-background-color:\"\)\.append\(toHexColor\(JBColor\.background\(\)\)\)/)
 })
+
+test('custom toolbar items reset upstream narrow-screen padding', () => {
+    const css = fs.readFileSync(path.join(resources, 'vditor/style.css'), 'utf8')
+    const rule = css.match(/\.markdown-toolbar > \.vditor-toolbar__item,\s*\.markdown-toolbar-tray > \.vditor-toolbar__item\s*\{([^}]+)\}/)
+    assert.ok(rule, 'Expected the combined custom toolbar-item rule')
+    assert.match(rule[1], /(?:^|;)\s*padding:\s*0\s*;/, 'Reset upstream <=520px padding: 0 12px')
+})
