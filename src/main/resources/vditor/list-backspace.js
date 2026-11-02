@@ -66,46 +66,50 @@ function fixListBackspace(event) {
   selection.collapse(lastText, lastText.textContent.length)
 }
 
-// A line selection may end at the next item's first character without selecting
-// that character. Native deletion merges those items, even across list depths.
+// Remove a complete leaf line without asking Chromium to reinsert its list
+// tree: insertHTML reparses loose lists and can change every nested boundary.
 function fixListSelectionDelete(event, selection, range) {
   const elementAt = node => node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement
   const item = elementAt(range.startContainer)?.closest('li')
-  const next = elementAt(range.endContainer)?.closest('li')
   const root = item?.closest('[contenteditable=true]')
-  if (!item || !next || item === next || !root || !root.contains(next) ||
-      !root.closest('.vditor-wysiwyg, .vditor-ir')) return
+  if (!item || !root || !root.contains(range.endContainer) ||
+      !root.closest('.vditor-wysiwyg, .vditor-ir') || item.querySelector('ul, ol')) return
+  const meaningful = fragment => fragment.textContent.replace(/[\s\u200b]/g, '') ||
+    fragment.querySelector('img, input, code, br')
   const before = document.createRange()
   before.selectNodeContents(item)
   before.setEnd(range.startContainer, range.startOffset)
-  const prefix = document.createRange()
-  prefix.selectNodeContents(next)
-  prefix.setEnd(range.endContainer, range.endOffset)
-  const meaningful = fragment => fragment.textContent.replace(/[\s\u200b]/g, '') ||
-    fragment.querySelector('img, input, code, br')
-  if (meaningful(before.cloneContents()) || meaningful(prefix.cloneContents())) return
+  const prefix = before.cloneContents()
+  // Task markers belong to the line even when selection starts at its text.
+  prefix.querySelectorAll('input[type=checkbox]').forEach(marker => marker.remove())
+  if (meaningful(prefix)) return
+  const afterItem = document.createRange()
+  afterItem.setStartAfter(item)
+  afterItem.collapse(true)
+  const end = range.cloneRange()
+  end.collapse(false)
+  // Text-only selections still use native deletion and leave an empty bullet.
+  if (end.compareBoundaryPoints(Range.START_TO_START, afterItem) < 0) return
   const remainder = range.cloneRange()
   remainder.setStartAfter(item)
-  // Only a complete leaf item and structural whitespace may be selected.
-  if (item.querySelector('ul, ol') || meaningful(remainder.cloneContents())) return
-  let list = item.parentElement
-  while (list.parentElement !== root && list.parentElement.closest('ul, ol')) {
-    list = list.parentElement.closest('ul, ol')
-  }
-  if (!list.contains(next)) return
-  const items = Array.from(list.querySelectorAll('li'))
-  const copy = list.cloneNode(true)
-  const removed = copy.querySelectorAll('li')[items.indexOf(item)]
-  const parent = removed.parentElement
-  removed.remove()
-  if (!parent.children.length) parent.remove()
+  if (meaningful(remainder.cloneContents())) return
   event.preventDefault()
   event.stopImmediatePropagation()
-  range.selectNode(list)
-  selection.removeAllRanges()
-  selection.addRange(range)
-  // Native insertion records one undoable edit and emits Vditor's input event.
-  document.execCommand('insertHTML', false, copy.outerHTML)
+  const parent = item.parentElement
+  const offset = Array.prototype.indexOf.call(parent.childNodes, item)
+  const container = parent.parentElement
+  const listOffset = Array.prototype.indexOf.call(container.childNodes, parent)
+  item.remove()
+  if (!parent.children.length) {
+    parent.remove()
+    selection.collapse(container, listOffset)
+  } else selection.collapse(parent, Math.min(offset, parent.childNodes.length))
+  // Vditor owns rich-mode undo and persistence. Its input pipeline records the
+  // targeted DOM edit without Chromium reparsing untouched list ancestors.
+  root.dispatchEvent(new InputEvent('input', {
+    bubbles: true,
+    inputType: event.key === 'Delete' ? 'deleteContentForward' : 'deleteContentBackward'
+  }))
 }
 
 if (typeof module !== 'undefined') module.exports = { fixListBackspace }

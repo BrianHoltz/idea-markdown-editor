@@ -17,7 +17,7 @@ window.original = '- Report Code Puppy history bloat and maintenance health\n' +
     '  - Invoke it explicitly in the native harness, not through Langley.\n'
 window.editor = new Vditor('editor', {
     cdn: new URL('../src/main/resources/vditor', location.href).href,
-    mode: 'wysiwyg', cache: {enable: false}, value: original,
+    mode: 'wysiwyg', undoDelay: 50, cache: {enable: false}, value: original,
     after() { window.ready = true }
 })
 document.addEventListener('keydown', fixListBackspace, true)
