@@ -11,38 +11,38 @@ function fixListBackspace(event) {
     fixListSelectionDelete(event, selection, range)
     return
   }
-  if (event.key !== 'Backspace') return
   const node = range.startContainer
-  const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement
-  const paragraph = element && element.closest('p')
-  if (paragraph && paragraph.parentElement.matches('[contenteditable=true]') &&
-      paragraph.closest('.vditor-wysiwyg, .vditor-ir') &&
+  const element = elementOf(node)
+  const root = element?.closest('[contenteditable=true]')
+  if (!root || !root.closest('.vditor-wysiwyg, .vditor-ir')) return
+  const emptyItem = element.closest('li')
+  if (event.key === 'Delete' && emptyItem && emptyOwnLine(emptyItem) &&
+      !emptyItem.querySelector('ul, ol')) {
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    removeLines([emptyItem], selection)
+    notifyEdit(root, 'deleteContentForward')
+    return
+  }
+  if (event.key !== 'Backspace') return
+  const paragraph = element.closest('p')
+  if (paragraph && paragraph.parentElement === root &&
       !paragraph.textContent.replace(/[\s\u200b]/g, '') && !paragraph.querySelector('img, input, code')) {
     const before = paragraph.previousElementSibling
     const after = paragraph.nextElementSibling
-    if (before && after && /^(UL|OL)$/.test(before.tagName) && before.tagName === after.tagName &&
-        before.getAttribute('data-tight') === after.getAttribute('data-tight') &&
-        /^(UL|OL)$/.test(before.lastElementChild?.lastElementChild?.tagName)) {
-      const merged = before.cloneNode(true)
-      const count = merged.children.length
-      merged.append(...Array.from(after.children).map(child => child.cloneNode(true)))
+    if (before && LIST_TAG.test(before.tagName) && (!after || !LIST_TAG.test(after.tagName) ||
+        (before.tagName === after.tagName && before.getAttribute('data-tight') === after.getAttribute('data-tight')))) {
+      const previous = before.lastElementChild
+      if (after && LIST_TAG.test(after.tagName)) {
+        before.append(...Array.from(after.children))
+        after.remove()
+      }
+      paragraph.remove()
       event.preventDefault()
       event.stopImmediatePropagation()
-      range.setStartBefore(before)
-      range.setEndAfter(after)
-      selection.removeAllRanges()
-      selection.addRange(range)
-      document.execCommand('insertHTML', false, merged.outerHTML)
-      const current = selection.anchorNode.nodeType === Node.ELEMENT_NODE
-        ? selection.anchorNode : selection.anchorNode.parentElement
-      const inserted = current.closest('ul, ol')
-      const target = inserted && inserted.children[count - 1]?.querySelector('ul, ol')
-      if (target) {
-        const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT)
-        let text
-        while (walker.nextNode()) if (walker.currentNode.textContent.trim()) text = walker.currentNode
-        if (text) selection.collapse(text, text.textContent.length)
-      }
+      const items = previous.querySelectorAll('li')
+      collapseInItem(selection, items.length ? items[items.length - 1] : previous, false)
+      notifyEdit(root, 'deleteContentBackward')
       return
     }
   }

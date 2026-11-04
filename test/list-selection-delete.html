@@ -24,6 +24,7 @@ window.editor = new Vditor('editor', {
     mode: 'wysiwyg', undoDelay: 50, cache: {enable: false}, value: original,
     after() { window.ready = true }
 })
+document.addEventListener('keydown', event => { if (event.key === 'Enter') fixListStartEnter(event, editor.vditor) }, true);
 document.addEventListener('keydown', fixListBackspace, true)
 document.addEventListener('keydown', fixListIndent, true)
 installListClipboard(() => editor.vditor)

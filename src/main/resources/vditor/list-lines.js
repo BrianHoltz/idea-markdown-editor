@@ -10,6 +10,13 @@ function meaningful(fragment) {
   return fragment.textContent.replace(/[\s\u200b]/g, '') || fragment.querySelector('img, input, code, br')
 }
 
+// Placeholder breaks make an editable blank line, not user content.
+function emptyOwnLine(item) {
+  const content = ownRange(item).cloneContents()
+  content.querySelectorAll('br, input[type=checkbox]').forEach(node => node.remove())
+  return !meaningful(content)
+}
+
 // A task marker belongs to its line even when a selection starts at the text.
 function hasContent(range, ignoreTaskMarker) {
   const fragment = range.cloneContents()
@@ -86,10 +93,16 @@ function selectedLines(range) {
 function collapseInItem(selection, item, atStart) {
   const nodes = []
   const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT)
-  while (walker.nextNode()) if (walker.currentNode.parentElement.closest('li') === item) nodes.push(walker.currentNode)
+  while (walker.nextNode()) if (walker.currentNode.parentElement.closest('li') === item &&
+      walker.currentNode.data.replace(/[\s\u200b]/g, '')) nodes.push(walker.currentNode)
   const text = atStart ? nodes[0] : nodes[nodes.length - 1]
   if (text) selection.collapse(text, atStart ? 0 : text.length)
-  else selection.collapse(item, 0)
+  else {
+    const own = ownRange(item)
+    own.collapse(atStart)
+    selection.removeAllRanges()
+    selection.addRange(own)
+  }
 }
 
 // Remove whole lines. Sub-bullets that were not selected move up into the removed
@@ -140,4 +153,32 @@ function linesToMarkdown(lines, vditor) {
 // Vditor records undo and persistence from its input pipeline.
 function notifyEdit(root, inputType) {
   root.dispatchEvent(new InputEvent('input', {bubbles: true, inputType}))
+}
+
+// Splitting at the first character creates a sibling without reparsing the
+// parent: a transient leading blank '-' child otherwise becomes a Setext heading.
+function fixListStartEnter(event, vditor) {
+  if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return
+  const selection = getSelection()
+  if (!selection?.isCollapsed || !selection.rangeCount) return
+  const caret = selection.getRangeAt(0)
+  const item = elementOf(caret.startContainer)?.closest('li')
+  const root = item?.closest('[contenteditable=true]')
+  if (!root || !root.closest('.vditor-wysiwyg, .vditor-ir') || emptyOwnLine(item) ||
+      item.parentElement.tagName !== 'UL' || item.classList.contains('vditor-task')) return
+  const block = elementOf(caret.startContainer).closest('pre, code, table, h1, h2, h3, h4, h5, h6')
+  if (block && item.contains(block)) return
+  const head = ownRange(item)
+  if (head.comparePoint(caret.startContainer, caret.startOffset) !== 0) return
+  head.setEnd(caret.startContainer, caret.startOffset)
+  if (hasContent(head, true)) return
+  event.preventDefault()
+  event.stopImmediatePropagation()
+  const blank = item.cloneNode(false)
+  const content = item.querySelector(':scope > p') ? blank.appendChild(document.createElement('p')) : blank
+  content.appendChild(document.createElement('br'))
+  item.before(blank)
+  collapseInItem(selection, item, true)
+  vditor[vditor.currentMode].preventInput = true
+  notifyEdit(root, 'insertParagraph')
 }

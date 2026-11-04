@@ -645,6 +645,7 @@
         }, true);
     }
 
+    document.addEventListener('keydown', event => { if (event.key === 'Enter') fixListStartEnter(event, vditor.vditor) }, true);
     document.addEventListener('keydown', fixListBackspace, true);
     document.addEventListener('keydown', fixListIndent, true);
     installListClipboard(() => vditor.vditor);

@@ -30,10 +30,12 @@ window.lineBox = (mode, text, nth = 0) => {
 // The WYSIWYG popover floats over the line below the caret, so a click there hits
 // its buttons; placing the caret directly sidesteps that without changing the paste.
 window.placeCaret = (mode, text, where, nth = 0) => {
-  const nodes = ownText(findLine(mode, text, nth))
-  const node = where === 'start' ? nodes[0] : nodes[nodes.length - 1]
+  const item = findLine(mode, text, nth)
+  if (!item) throw new Error('Missing list line: ' + text)
+  const nodes = ownText(item)
+  const node = (where === 'start' ? nodes[0] : nodes[nodes.length - 1]) || item
   editor.vditor[mode].element.focus()
-  getSelection().collapse(node, where === 'start' ? 0 : node.length)
+  getSelection().collapse(node, where === 'start' || node === item ? 0 : node.length)
 }
 window.selectWord = (mode, line, word) => {
   const node = ownText(findLine(mode, line))[0]
@@ -84,10 +86,10 @@ const SHORTCUT_ACTS = new Set(['cut', 'copy', 'paste', 'undo', 'redo'])
 // `at` for a paste target; `clipboard` to preload text; `clip`, `afterCut` and
 // `expect` for the clipboard, the document after `act`, and the final document.
 async function runRow(page, mode, row) {
-  const settle = () => pause(250)
+  const settle = () => pause(150)
   const markdown = () => page.evaluate('editor.getValue()')
   // Vditor spaces a task marker's text differently in each mode.
-  const squeeze = text => text.replace(/(\[[ xX]\]) +/g, '$1 ')
+  const squeeze = text => text.replace(/(\[[ xX]\]) +/g, '$1 ').replace(/^( *)[*+]([ \n]|$)/gm, '$1-$2')
   const expectEqual = (actual, expected, what) => {
     if (squeeze(actual) !== squeeze(expected)) throw new Error(`${what}\n  expected: ${JSON.stringify(expected)}\n  actual:   ${JSON.stringify(actual)}`)
   }
@@ -96,9 +98,34 @@ async function runRow(page, mode, row) {
   await page.evaluate(`editor.setValue(${JSON.stringify(row.doc)}); getSelection().removeAllRanges(); document.activeElement.blur()
     for (const popover of document.querySelectorAll('.vditor-panel')) popover.style.display = 'none'`)
   await settle()
+  if (row.setup) {
+    if (row.setup.empty) {
+      await place({line: row.setup.empty, where: 'start'})
+      await page.evaluate(`selectWord('${mode}', ${JSON.stringify(row.setup.empty)}, ${JSON.stringify(row.setup.empty)})`)
+    } else await place(row.setup.caret)
+    for (const key of row.setup.keys) { await page.key(key); await settle() }
+  }
   const original = await markdown()
   const box = (line, nth = 0) => page.evaluate(`lineBox('${mode}', ${JSON.stringify(line)}, ${nth})`)
-  let steps = 0
+  // Compare semantic structure too: an empty paragraph/list split may serialize
+  // to the same Markdown but must still be restored by undo.
+  const structure = () => page.evaluate(`(() => {
+    const root = editor.vditor['${mode}'].element
+    const visit = node => {
+      if (node.nodeType === 3) return node.data.trim() ? '#text' : null
+      if (node.nodeType !== 1 || node.matches('wbr, .vditor-ir__marker, .vditor-ir__preview')) return null
+      return [node.tagName, ...Array.from(node.childNodes).map(visit).filter(Boolean)]
+    }
+    return JSON.stringify(Array.from(root.childNodes).map(visit).filter(Boolean))
+  })()`)
+  const history = [{markdown: original, structure: await structure()}]
+  let beforeAction
+  const dom = () => page.evaluate(`(() => { const copy = editor.vditor['${mode}'].element.cloneNode(true); copy.querySelectorAll('wbr').forEach(node => node.remove()); return copy.innerHTML })()`)
+  const record = async () => {
+    // Empty paragraphs can change DOM/history without changing Markdown.
+    if (await dom() !== beforeAction) history.push({markdown: await markdown(), structure: await structure()})
+  }
+  if (row.clipboard !== undefined) setClipboard(row.clipboard)
   if (row.select) {
     const {triple, lines, word} = row.select
     if (triple) {
@@ -107,28 +134,42 @@ async function runRow(page, mode, row) {
     } else if (lines) {
       const first = await box(lines[0]), last = await box(lines[1])
       await page.drag({x: first.left + 0.5, y: first.y}, {x: last.right + 3, y: last.y})
-    } else await page.evaluate(`selectWord('${mode}', ${JSON.stringify(word[0])}, ${JSON.stringify(word[1])})`)
+    } else {
+      await page.evaluate(`editor.vditor['${mode}'].element.focus()`)
+      await page.evaluate(`selectWord('${mode}', ${JSON.stringify(word[0])}, ${JSON.stringify(word[1])})`)
+    }
   } else if (row.caret) await place(row.caret)
-  else if (row.clipboard !== undefined) setClipboard(row.clipboard)
+  let actionIndex = 0
   for (const act of [].concat(row.act ?? [])) {
-    if (SHORTCUT_ACTS.has(act)) await page.shortcut(act)
+    beforeAction = await dom()
+    if (act.text !== undefined) await page.session.send('Input.insertText', {text: act.text})
+    else if (act.caret) { await place(act.caret); continue }
+    else if (SHORTCUT_ACTS.has(act)) await page.shortcut(act)
     else if (act.startsWith('Shift+')) await page.key(act.slice(6), 8)
     else await page.key(act)
     await settle()
-    if (act !== 'copy') steps++
+    await record()
+    if (row.states) expectEqual(await markdown(), row.states[actionIndex++], 'document after action')
   }
   if (row.clip !== undefined) expectEqual(clipboardText(), row.clip, 'clipboard')
   if (row.afterCut !== undefined) expectEqual(await markdown(), row.afterCut, 'document after the first action')
   if (row.at) {
     await place(row.at)
     await pause(120)
+    beforeAction = await dom()
     await page.shortcut('paste')
     await settle()
-    steps++
+    await record()
   }
   expectEqual(await markdown(), row.expect, 'final document')
-  for (let step = 0; step < steps; step++) { await page.shortcut('undo'); await settle() }
-  expectEqual(await markdown(), original, `document after ${steps} undo`)
-  for (let step = 0; step < steps; step++) { await page.shortcut('redo'); await settle() }
-  expectEqual(await markdown(), row.expect, `document after ${steps} redo`)
+  for (let step = history.length - 2; step >= 0; step--) {
+    await page.shortcut('undo'); await settle()
+    expectEqual(await markdown(), history[step].markdown, 'undo intermediate state')
+    expectEqual(await structure(), history[step].structure, 'undo list structure')
+  }
+  for (let step = 1; step < history.length; step++) {
+    await page.shortcut('redo'); await settle()
+    expectEqual(await markdown(), history[step].markdown, 'redo intermediate state')
+    expectEqual(await structure(), history[step].structure, 'redo list structure')
+  }
 }
