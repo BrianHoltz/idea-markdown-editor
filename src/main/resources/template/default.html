@@ -5,7 +5,11 @@
     <script src="{{service}}{{resources}}vditor/dist/index.min.js?{{serverToken}}"></script>
     <script src="{{service}}{{resources}}vditor/jquery-3.6.0.min.js?{{serverToken}}"></script>
     <script src="{{service}}{{resources}}vditor/search-count.js?{{serverToken}}"></script>
+    <script src="{{service}}{{resources}}vditor/list-lines.js?{{serverToken}}"></script>
     <script src="{{service}}{{resources}}vditor/list-backspace.js?{{serverToken}}"></script>
+    <script src="{{service}}{{resources}}vditor/list-indent.js?{{serverToken}}"></script>
+    <script src="{{service}}{{resources}}vditor/list-clipboard.js?{{serverToken}}"></script>
+    <script src="{{service}}{{resources}}vditor/undo-redo.js?{{serverToken}}"></script>
     <script src="{{service}}{{resources}}vditor/context-selection.js?{{serverToken}}"></script>
 </head>
 <body class="body">
@@ -642,6 +646,9 @@
     }
 
     document.addEventListener('keydown', fixListBackspace, true);
+    document.addEventListener('keydown', fixListIndent, true);
+    installListClipboard(() => vditor.vditor);
+    installUndoRedo(() => vditor.vditor);
 
     const vditor = new Vditor('vditor', {
         "theme": darcula ? "dark" : "light",

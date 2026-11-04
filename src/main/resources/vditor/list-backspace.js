@@ -66,68 +66,16 @@ function fixListBackspace(event) {
   selection.collapse(lastText, lastText.textContent.length)
 }
 
-// A caret parked directly in a list makes Vditor's input handler rebuild the
-// block around it: the neighbouring item turns into a paragraph with a literal
-// "- " prefix. Keep the caret inside a real item, at its start or end.
-function collapseInItem(selection, item, atStart) {
-  // Only the item's own line counts; nested lists have lines of their own.
-  const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT, {
-    acceptNode: node => node.parentElement.closest('ul, ol') !== item.closest('ul, ol')
-      ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT
-  })
-  const texts = []
-  while (walker.nextNode()) texts.push(walker.currentNode)
-  const text = atStart ? texts[0] : texts[texts.length - 1]
-  if (text) selection.collapse(text, atStart ? 0 : text.length)
-  else selection.collapse(item, 0)
-}
-
-// Remove a complete leaf line without asking Chromium to reinsert its list
-// tree: insertHTML reparses loose lists and can change every nested boundary.
+// Remove whole selected lines ourselves: native deletion merges neighbouring items,
+// and reinserting HTML makes Chromium reparse loose lists and change every boundary.
+// Text selected within a single line stays a native edit and leaves an empty bullet.
 function fixListSelectionDelete(event, selection, range) {
-  const elementAt = node => node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement
-  const item = elementAt(range.startContainer)?.closest('li')
-  const root = item?.closest('[contenteditable=true]')
-  if (!item || !root || !root.contains(range.endContainer) ||
-      !root.closest('.vditor-wysiwyg, .vditor-ir') || item.querySelector('ul, ol')) return
-  const meaningful = fragment => fragment.textContent.replace(/[\s\u200b]/g, '') ||
-    fragment.querySelector('img, input, code, br')
-  const before = document.createRange()
-  before.selectNodeContents(item)
-  before.setEnd(range.startContainer, range.startOffset)
-  const prefix = before.cloneContents()
-  // Task markers belong to the line even when selection starts at its text.
-  prefix.querySelectorAll('input[type=checkbox]').forEach(marker => marker.remove())
-  if (meaningful(prefix)) return
-  const afterItem = document.createRange()
-  afterItem.setStartAfter(item)
-  afterItem.collapse(true)
-  const end = range.cloneRange()
-  end.collapse(false)
-  // Text-only selections still use native deletion and leave an empty bullet.
-  if (end.compareBoundaryPoints(Range.START_TO_START, afterItem) < 0) return
-  const remainder = range.cloneRange()
-  remainder.setStartAfter(item)
-  if (meaningful(remainder.cloneContents())) return
+  const found = selectedLines(range)
+  if (!found || !found.wholeLines) return
   event.preventDefault()
   event.stopImmediatePropagation()
-  const parent = item.parentElement
-  const container = parent.parentElement
-  const listOffset = Array.prototype.indexOf.call(container.childNodes, parent)
-  const next = item.nextElementSibling
-  const previous = item.previousElementSibling
-  item.remove()
-  if (!parent.children.length) {
-    parent.remove()
-    selection.collapse(container, listOffset)
-  } else if (next) collapseInItem(selection, next, true)
-  else collapseInItem(selection, previous, false)
-  // Vditor owns rich-mode undo and persistence. Its input pipeline records the
-  // targeted DOM edit without Chromium reparsing untouched list ancestors.
-  root.dispatchEvent(new InputEvent('input', {
-    bubbles: true,
-    inputType: event.key === 'Delete' ? 'deleteContentForward' : 'deleteContentBackward'
-  }))
+  removeLines(found.lines, selection)
+  notifyEdit(found.root, event.key === 'Delete' ? 'deleteContentForward' : 'deleteContentBackward')
 }
 
 if (typeof module !== 'undefined') module.exports = { fixListBackspace }

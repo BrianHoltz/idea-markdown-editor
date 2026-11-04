@@ -5,7 +5,11 @@
 <button id="run">Run regression</button><pre id="results"></pre>
 <div id="editor"></div>
 <script src="../src/main/resources/vditor/dist/index.js"></script>
+<script src="../src/main/resources/vditor/list-lines.js"></script>
 <script src="../src/main/resources/vditor/list-backspace.js"></script>
+<script src="../src/main/resources/vditor/list-indent.js"></script>
+<script src="../src/main/resources/vditor/list-clipboard.js"></script>
+<script src="../src/main/resources/vditor/undo-redo.js"></script>
 <script src="list-selection-delete.browser.js"></script>
 <script>
 // Serve the repository root, then open this fixture in Chrome Canary.
@@ -21,6 +25,9 @@ window.editor = new Vditor('editor', {
     after() { window.ready = true }
 })
 document.addEventListener('keydown', fixListBackspace, true)
+document.addEventListener('keydown', fixListIndent, true)
+installListClipboard(() => editor.vditor)
+installUndoRedo(() => editor.vditor)
 document.getElementById('run').onclick = async () => {
     const output = document.getElementById('results')
     try { output.textContent = (await testListSelectionDelete()).join('\n') }
