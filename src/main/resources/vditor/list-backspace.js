@@ -66,6 +66,22 @@ function fixListBackspace(event) {
   selection.collapse(lastText, lastText.textContent.length)
 }
 
+// A caret parked directly in a list makes Vditor's input handler rebuild the
+// block around it: the neighbouring item turns into a paragraph with a literal
+// "- " prefix. Keep the caret inside a real item, at its start or end.
+function collapseInItem(selection, item, atStart) {
+  // Only the item's own line counts; nested lists have lines of their own.
+  const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT, {
+    acceptNode: node => node.parentElement.closest('ul, ol') !== item.closest('ul, ol')
+      ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT
+  })
+  const texts = []
+  while (walker.nextNode()) texts.push(walker.currentNode)
+  const text = atStart ? texts[0] : texts[texts.length - 1]
+  if (text) selection.collapse(text, atStart ? 0 : text.length)
+  else selection.collapse(item, 0)
+}
+
 // Remove a complete leaf line without asking Chromium to reinsert its list
 // tree: insertHTML reparses loose lists and can change every nested boundary.
 function fixListSelectionDelete(event, selection, range) {
@@ -96,14 +112,16 @@ function fixListSelectionDelete(event, selection, range) {
   event.preventDefault()
   event.stopImmediatePropagation()
   const parent = item.parentElement
-  const offset = Array.prototype.indexOf.call(parent.childNodes, item)
   const container = parent.parentElement
   const listOffset = Array.prototype.indexOf.call(container.childNodes, parent)
+  const next = item.nextElementSibling
+  const previous = item.previousElementSibling
   item.remove()
   if (!parent.children.length) {
     parent.remove()
     selection.collapse(container, listOffset)
-  } else selection.collapse(parent, Math.min(offset, parent.childNodes.length))
+  } else if (next) collapseInItem(selection, next, true)
+  else collapseInItem(selection, previous, false)
   // Vditor owns rich-mode undo and persistence. Its input pipeline records the
   // targeted DOM edit without Chromium reparsing untouched list ancestors.
   root.dispatchEvent(new InputEvent('input', {

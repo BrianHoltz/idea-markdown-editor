@@ -64,6 +64,64 @@ async function testListSelectionDelete() {
         results.push(`${mode}: partial selections, composition, modifiers and unrelated keys untouched`)
     }
     results.push(...await testListSelectionBoundaries())
+    results.push(...await testSiblingSelectionDelete())
+    return results
+}
+
+// Removing an item whose neighbour is a sibling must leave the caret inside a
+// list item. A caret parked in the list itself makes Vditor turn the next item
+// into a paragraph with a literal "- " and loosen the whole list.
+async function testSiblingSelectionDelete() {
+    const results = []
+    const settle = () => new Promise(resolve => setTimeout(resolve, editor.vditor.options.undoDelay + 100))
+    const check = (condition, label) => { if (!condition) throw new Error(label) }
+    const value = '## TODO\n\n- First\n- Second\n- Third with children\n  - Child\n- Fourth\n'
+    const scenarios = [
+        {name: 'first', target: 'First', end: 'nextText'},
+        {name: 'first to next item', target: 'First', end: 'nextItem'},
+        {name: 'first to list end', target: 'First', end: 'listEnd'},
+        {name: 'middle', target: 'Second', end: 'nextText'},
+        {name: 'last', target: 'Fourth', end: 'listEnd'}
+    ]
+    for (const mode of ['wysiwyg', 'ir']) {
+        document.querySelector(`button[data-mode="${mode}"]`).click()
+        for (const scenario of scenarios) {
+            for (const key of ['Backspace', 'Delete']) {
+                editor.setValue(value)
+                await settle()
+                const root = editor.vditor[mode].element
+                root.focus()
+                const item = [...root.querySelectorAll('li')].find(li => li.textContent.startsWith(scenario.target))
+                const next = item.nextElementSibling
+                const start = document.createTreeWalker(item, NodeFilter.SHOW_TEXT).nextNode()
+                const range = document.createRange()
+                range.setStart(start, 0)
+                if (scenario.end === 'nextText') range.setEnd(document.createTreeWalker(next, NodeFilter.SHOW_TEXT).nextNode(), 0)
+                else if (scenario.end === 'nextItem') range.setEnd(next, 0)
+                else range.setEndAfter(item)
+                getSelection().setBaseAndExtent(range.startContainer, range.startOffset, range.endContainer, range.endOffset)
+                const before = editor.getValue()
+                const expected = before.replace(new RegExp(`^- ${scenario.target}\\n`, 'm'), '')
+                const event = new KeyboardEvent('keydown', {key, bubbles: true, cancelable: true})
+                root.dispatchEvent(event)
+                if (!event.defaultPrevented) document.execCommand(key === 'Delete' ? 'forwardDelete' : 'delete')
+                await settle()
+                const label = `${mode}/sibling ${scenario.name}/${key}`
+                check(editor.getValue() === expected, `${label}: ${JSON.stringify(editor.getValue())}`)
+                check(![...root.querySelectorAll('p')].some(p => p.textContent.startsWith('- ')), `${label}: list item became a paragraph`)
+                const caretItem = (getSelection().anchorNode?.nodeType === Node.ELEMENT_NODE
+                    ? getSelection().anchorNode : getSelection().anchorNode?.parentElement)?.closest('li')
+                check(caretItem, `${label}: caret left outside list items`)
+                editor.vditor.undo.undo(editor.vditor)
+                await settle()
+                check(editor.getValue() === before, `${label}: undo`)
+                editor.vditor.undo.redo(editor.vditor)
+                await settle()
+                check(editor.getValue() === expected, `${label}: redo`)
+                results.push(`${label}: deletion + caret + undo + redo`)
+            }
+        }
+    }
     return results
 }
 
