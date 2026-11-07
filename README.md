@@ -21,6 +21,10 @@ IntelliJ Platform A full-featured WYSIWYG editor for markdown
 * There is no need to uninstall the default markdown plugin. The editor of the current plugin appears after the default editor.
 * Ensure that the IDE supports JCEF.
 
+# Development
+
+See the [hierarchical list editing test and fix plan](test/ListEditingTestPlan.md) for regression coverage, expected editing behavior, and implementation acceptance criteria.
+
 # Demo
 
 ![demo.gif](https://raw.githubusercontent.com/shuzijun/markdown-editor/main/assets/demo.gif)
