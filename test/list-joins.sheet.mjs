@@ -88,7 +88,8 @@ for (const count of [1, 2, 3]) rows.push({name: `Help real click Backspace repea
 for (const [syntax, visible] of [['**Bold**', 'Bold'], ['`Code`', 'Code'], ['[Link](x)', 'Link']]) {
   rows.push({name: `Delete formatted child ${visible} then type`,
     doc: `- Parent\n  - ${syntax} text\n  - Sibling\n`, caret: {line: 'Parent', where: 'end'},
-    act: ['Delete', {text: 'x'}], expect: `- Parentx${syntax} text\n  - Sibling\n`})
+    act: ['Delete', {text: 'x'}], expect: {ir: `- Parentx${syntax} text\n  - Sibling\n`,
+      wysiwyg: `- Parentx${visible === 'Code' ? ' ' : ''}${syntax} text\n  - Sibling\n`}})
 }
 for (const count of [2, 3]) rows.push({name: `Backspace repeat from plain start ${count}`, doc: markdown(branch),
   caret: {line: 'Bravo', where: 'start'}, act: Array(count).fill('Backspace'),

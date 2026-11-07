@@ -9,6 +9,7 @@
 <script src="../src/main/resources/vditor/list-backspace.js"></script>
 <script src="../src/main/resources/vditor/list-indent.js"></script>
 <script src="../src/main/resources/vditor/list-clipboard.js"></script>
+<script src="../src/main/resources/vditor/list-editing.js"></script>
 <script src="../src/main/resources/vditor/undo-redo.js"></script>
 <script src="list-selection-delete.browser.js"></script>
 <script>
@@ -21,14 +22,10 @@ window.original = '- Report Code Puppy history bloat and maintenance health\n' +
     '  - Invoke it explicitly in the native harness, not through Langley.\n'
 window.editor = new Vditor('editor', {
     cdn: new URL('../src/main/resources/vditor', location.href).href,
-    mode: 'wysiwyg', undoDelay: 50, cache: {enable: false}, value: original,
+    mode: 'ir', ...(new URLSearchParams(location.search).has('defaultUndo') ? {} : {undoDelay: 50}), cache: {enable: false}, value: original,
     after() { window.ready = true }
 })
-document.addEventListener('keydown', event => { if (event.key === 'Enter') fixListStartEnter(event, editor.vditor) }, true);
-document.addEventListener('keydown', fixListBackspace, true)
-document.addEventListener('keydown', fixListIndent, true)
-installListClipboard(() => editor.vditor)
-installUndoRedo(() => editor.vditor)
+installListEditing(() => editor.vditor)
 document.getElementById('run').onclick = async () => {
     const output = document.getElementById('results')
     try { output.textContent = (await testListSelectionDelete()).join('\n') }

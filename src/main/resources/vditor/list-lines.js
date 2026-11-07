@@ -7,7 +7,7 @@ function elementOf(node) {
 }
 
 function meaningful(fragment) {
-  return fragment.textContent.replace(/[\s\u200b]/g, '') || fragment.querySelector('img, input, code, br')
+  return !isBlank(fragment.textContent) || fragment.querySelector('img, input, code, br')
 }
 
 // Placeholder breaks make an editable blank line, not user content.
@@ -36,10 +36,10 @@ function ownRange(item) {
 // dragging across it. Remember what a triple-click selected so that, while it is
 // still the selection, it counts as selecting the line.
 let tripleClickRange = null
-document.addEventListener('mouseup', event => {
+function trackListTripleClick(event) {
   const selection = getSelection()
   tripleClickRange = event.detail === 3 && selection.rangeCount ? selection.getRangeAt(0).cloneRange() : null
-}, true)
+}
 
 function isTripleClickSelection(range) {
   return !!tripleClickRange && range.compareBoundaryPoints(Range.START_TO_START, tripleClickRange) === 0 &&
@@ -94,7 +94,7 @@ function collapseInItem(selection, item, atStart) {
   const nodes = []
   const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT)
   while (walker.nextNode()) if (walker.currentNode.parentElement.closest('li') === item &&
-      walker.currentNode.data.replace(/[\s\u200b]/g, '')) nodes.push(walker.currentNode)
+      !isBlank(walker.currentNode.data)) nodes.push(walker.currentNode)
   const text = atStart ? nodes[0] : nodes[nodes.length - 1]
   if (text) selection.collapse(text, atStart ? 0 : text.length)
   else {
@@ -164,8 +164,17 @@ function fixListStartEnter(event, vditor) {
   const caret = selection.getRangeAt(0)
   const item = elementOf(caret.startContainer)?.closest('li')
   const root = item?.closest('[contenteditable=true]')
-  if (!root || !root.closest('.vditor-wysiwyg, .vditor-ir') || emptyOwnLine(item) ||
-      item.parentElement.tagName !== 'UL' || item.classList.contains('vditor-task')) return
+  if (!root || !root.closest('.vditor-wysiwyg, .vditor-ir')) return
+  if (emptyOwnLine(item)) {
+    if (!outdentItem(item)) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    collapseInItem(selection, item, true)
+    vditor[vditor.currentMode].preventInput = true
+    notifyEdit(root, 'insertParagraph')
+    return
+  }
+  if (item.parentElement.tagName !== 'UL' || item.classList.contains('vditor-task')) return
   const block = elementOf(caret.startContainer).closest('pre, code, table, h1, h2, h3, h4, h5, h6')
   if (block && item.contains(block)) return
   const head = ownRange(item)
@@ -181,4 +190,123 @@ function fixListStartEnter(event, vditor) {
   collapseInItem(selection, item, true)
   vditor[vditor.currentMode].preventInput = true
   notifyEdit(root, 'insertParagraph')
+}
+
+function isBlank(text) {
+  return !text.replace(/[\s\u200b]/g, '')
+}
+
+// Extract only editable inline content, never the nested lists or task marker.
+function takeLineContent(item) {
+  const fragment = ownRange(item).extractContents()
+  fragment.querySelectorAll('input[type=checkbox]').forEach(node => node.remove())
+  const inline = document.createDocumentFragment()
+  for (const node of Array.from(fragment.childNodes)) {
+    if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'P') inline.append(...node.childNodes)
+    else inline.append(node)
+  }
+  const textNodes = document.createTreeWalker(inline, NodeFilter.SHOW_TEXT)
+  while (textNodes.nextNode()) textNodes.currentNode.data = textNodes.currentNode.data.replace(/\u200b/g, '')
+  // A task's separating whitespace is syntax, not part of its displayed text.
+  if (item.classList.contains('vditor-task')) {
+    const walker = document.createTreeWalker(inline, NodeFilter.SHOW_TEXT)
+    if (walker.nextNode()) walker.currentNode.data = walker.currentNode.data.replace(/^[\s\u200b]+/, '')
+  }
+  return inline
+}
+
+// All boundary joins use removeLines' promotion rule. Pin the join point with a
+// real text node so typing continues there even after children have been moved.
+function joinLines(earlier, later, selection) {
+  const content = takeLineContent(later)
+  const end = ownRange(earlier)
+  const paragraph = earlier.querySelector(':scope > p')
+  if (paragraph) { end.selectNodeContents(paragraph); end.collapse(false) }
+  else end.collapse(false)
+  const anchor = document.createTextNode('')
+  end.insertNode(anchor)
+  anchor.after(content)
+  if (later.tagName === 'LI') removeLines([later], selection)
+  else later.remove()
+  selection.collapse(anchor, 0)
+}
+
+function unwrapFirstLine(item, selection) {
+  const list = item.parentElement
+  const paragraph = document.createElement('p')
+  paragraph.append(takeLineContent(item))
+  list.before(paragraph)
+  removeLines([item], selection)
+  // The paragraph and the single surviving list are separate Markdown blocks.
+  const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT)
+  if (walker.nextNode()) selection.collapse(walker.currentNode, 0)
+  else selection.collapse(paragraph, 0)
+}
+
+// Inline code is ordinary inline text here; block code and headings are not.
+function listBoundaryContext(range) {
+  const element = elementOf(range.startContainer)
+  const item = element?.closest('li')
+  const root = item?.closest('[contenteditable=true]')
+  if (!root || !root.closest('.vditor-wysiwyg, .vditor-ir') || emptyOwnLine(item) ||
+      element.closest('table, h1, h2, h3, h4, h5, h6') ||
+      (element.closest('pre') && element.closest('pre') !== root)) return null
+  const own = ownRange(item)
+  if (own.comparePoint(range.startContainer, range.startOffset) !== 0) return null
+  const head = own.cloneRange(), tail = own.cloneRange()
+  head.setEnd(range.startContainer, range.startOffset)
+  tail.setStart(range.startContainer, range.startOffset)
+  const content = part => {
+    const fragment = part.cloneContents()
+    fragment.querySelectorAll('input[type=checkbox]').forEach(node => node.remove())
+    return !isBlank(fragment.textContent) || fragment.querySelector('img, br')
+  }
+  return {item, root, atStart: !content(head), atEnd: !content(tail)}
+}
+
+function handleListBoundary(event, selection, range) {
+  const context = listBoundaryContext(range)
+  if (!context) return false
+  const {item, root, atStart, atEnd} = context
+  const backward = event.key === 'Backspace'
+  if (!(backward ? atStart : atEnd)) return false
+  const lines = Array.from(root.querySelectorAll('li'))
+  const index = lines.indexOf(item)
+  const neighbour = lines[index + (backward ? -1 : 1)]
+  // Do not jump across a heading/paragraph or across independent root blocks.
+  const topBlock = node => { while (node.parentElement !== root) node = node.parentElement; return node }
+  const block = topBlock(item)
+  if (neighbour && (topBlock(neighbour) === block ||
+      (backward ? block.previousElementSibling : block.nextElementSibling) === topBlock(neighbour))) {
+    joinLines(backward ? neighbour : item, backward ? item : neighbour, selection)
+  } else if (backward) {
+    // A nested first line always has a parent above it. Only root items unwrap.
+    if (item.parentElement.parentElement !== root || item !== item.parentElement.firstElementChild) return false
+    unwrapFirstLine(item, selection)
+  } else {
+    const next = block.nextElementSibling
+    if (next?.tagName === 'P') joinLines(item, next, selection)
+    // No next line, or a heading/code block: keep this boundary intact.
+  }
+  return true
+}
+
+// Preserve a soft line break before nested lists. Chromium's terminal <br> is
+// otherwise treated as an editable placeholder and disappears on the next input.
+function fixListSoftBreak(event, vditor) {
+  if (event.key !== 'Enter' || !event.shiftKey || event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return
+  const selection = getSelection()
+  if (!selection?.isCollapsed || !selection.rangeCount) return
+  const range = selection.getRangeAt(0)
+  const item = elementOf(range.startContainer)?.closest('li')
+  const root = item?.closest('[contenteditable=true]')
+  if (!root || !root.closest('.vditor-ir, .vditor-wysiwyg') ||
+      item.querySelector('pre, table')?.contains(range.startContainer)) return
+  const text = document.createTextNode('\n\u200b')
+  range.insertNode(text)
+  selection.collapse(text, text.length)
+  event.preventDefault()
+  event.stopImmediatePropagation()
+  vditor[vditor.currentMode].preventInput = true
+  notifyEdit(root, 'insertLineBreak')
 }
