@@ -21,6 +21,14 @@ IntelliJ Platform A full-featured WYSIWYG editor for markdown
 * There is no need to uninstall the default markdown plugin. The editor of the current plugin appears after the default editor.
 * Ensure that the IDE supports JCEF.
 
+# Heading navigation
+
+Use **Navigate → Markdown Outline**, the main-toolbar outline button, or **⌘⌥O** on macOS (**Ctrl+Alt+O** elsewhere). Rebind **Markdown Outline** in Settings → Keymap. The popup lists every heading in document order, indented by level; type to filter, then click once or press Enter to jump and dismiss. Escape or clicking outside cancels. Long outlines scroll; there are no collapsed branches.
+
+The action supports this editor, IDEA's Markdown source editor, and its rendered preview without opening another editor or changing the preview layout. While a Markdown editor has focus, its configured **File Structure** shortcut also opens this picker; macOS must still deliver function keys to IDEA. Shortcut routing is scoped to the focused document and released when it closes.
+
+Build/source-contract checks do not establish installed-IDE acceptance. Verify shortcut delivery, single-click dismissal, and scrolling in each mode after installing the build.
+
 # Development
 
 See the [hierarchical list editing test and fix plan](test/ListEditingTestPlan.md) for regression coverage, expected editing behavior, and implementation acceptance criteria.

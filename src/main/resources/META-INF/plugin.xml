@@ -45,12 +45,21 @@
         <errorHandler implementation="com.shuzijun.markdown.listener.ErrorReportHandler"/>
         <postStartupActivity implementation="com.shuzijun.markdown.listener.SupportCheck"/>
         <postStartupActivity implementation="com.shuzijun.markdown.editor.VisibleMarkdownRefresh"/>
+        <postStartupActivity implementation="com.shuzijun.markdown.editor.MarkdownOutlineShortcuts"/>
         <applicationService
                 serviceImplementation="com.shuzijun.markdown.controller.FileApplicationService" />
     </extensions>
 
     <actions>
-        <!-- Add your actions here -->
+        <action id="markdown.outline" class="com.shuzijun.markdown.editor.MarkdownOutlineAction"
+                text="Markdown Outline" description="Show all Markdown headings and jump without changing editor mode"
+                icon="AllIcons.Toolwindows.ToolWindowStructure">
+            <keyboard-shortcut keymap="$default" first-keystroke="control alt O"/>
+            <keyboard-shortcut keymap="Mac OS X 10.5+" first-keystroke="meta alt O"/>
+            <add-to-group group-id="GoToCodeGroup" anchor="before" relative-to-action="FileStructurePopup"/>
+            <add-to-group group-id="MainToolbarRight" anchor="first"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
         <action id="markdown.search" class="com.shuzijun.markdown.editor.SearchAction" text="Search"
                 description="Search" >
             <keyboard-shortcut keymap="$default" first-keystroke="control F"/>
