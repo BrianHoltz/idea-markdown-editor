@@ -3,7 +3,7 @@
 import {spawnSync} from 'node:child_process'
 import {serve, launch} from './support/cdp.mjs'
 
-for (const file of ['list-empty', 'list-boundaries', 'list-editing', 'list-keys', 'list-matrix']) {
+for (const file of ['list-empty', 'list-boundaries', 'list-editing', 'list-keys', 'list-matrix', 'list-joins']) {
   const result = spawnSync(process.execPath, [new URL(`./${file}.sheet.mjs`, import.meta.url).pathname], {stdio: 'inherit'})
   if (result.error) throw result.error
   if (result.status !== 0) process.exit(result.status || 1)

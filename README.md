@@ -25,6 +25,10 @@ IntelliJ Platform A full-featured WYSIWYG editor for markdown
 
 See the [hierarchical list editing test and fix plan](test/ListEditingTestPlan.md) for regression coverage, expected editing behavior, and implementation acceptance criteria.
 
+Run the complete browser suite serially with `node test/list-suite.mjs`; it uses Chrome Canary and the shared agent profile. Run the Node checks with `node --test test/*.test.cjs`. Individual sheets accept a row-name filter, for example `node test/list-joins.sheet.mjs reported`. `DEFAULT_UNDO=1 node test/list-joins.sheet.mjs reported` uses Vditor's production undo delay.
+
+Build the plugin with `JAVA_HOME="/Applications/IntelliJ IDEA.app/Contents/jbr/Contents/Home" ./gradlew buildPlugin`. The ZIP is written to `build/distributions/`.
+
 # Demo
 
 ![demo.gif](https://raw.githubusercontent.com/shuzijun/markdown-editor/main/assets/demo.gif)

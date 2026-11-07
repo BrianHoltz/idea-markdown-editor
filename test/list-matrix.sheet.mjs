@@ -2,34 +2,7 @@
 // from Vditor's serialization. Run serially with the other clipboard sheets.
 import {runSheet} from './support/sheet.mjs'
 
-const line = (depth, text) => ({depth, text})
-const markdown = lines => lines.map(({depth, text}) => '  '.repeat(depth) + '-' + (text ? ' ' + text : '')).join('\n') + '\n'
-function group(prefix, depth, position, parent) {
-  const rows = []
-  for (let level = 0; level < depth; level++) rows.push(line(level, `${prefix} ancestor ${level}`))
-  for (const place of ['first', 'middle', 'last']) {
-    rows.push(line(depth, place === position ? prefix : `${prefix} ${place}`))
-    if (place === position && parent) rows.push(line(depth + 1, `${prefix} child`), line(depth + 2, `${prefix} grandchild`))
-  }
-  return rows
-}
-function removeOwn(lines, text) {
-  const index = lines.findIndex(row => row.text === text)
-  const result = lines.map(row => ({...row}))
-  const depth = result[index].depth
-  result.splice(index, 1)
-  for (let next = index; next < result.length && result[next].depth > depth; next++) result[next].depth--
-  return result
-}
-function insert(lines, target, payload, where) {
-  let index = lines.findIndex(row => row.text === target)
-  const depth = lines[index].depth
-  if (where === 'end') {
-    index++
-    while (index < lines.length && lines[index].depth > depth) index++
-  }
-  return [...lines.slice(0, index), ...payload.map(row => line(row.depth + depth, row.text)), ...lines.slice(index)]
-}
+import {line, markdown, group, removeOwn, insert} from './support/outline.mjs'
 const rows = []
 for (const sourceDepth of [0, 1, 2]) for (const targetDepth of [0, 1, 2])
   for (const parent of [false, true]) for (const act of ['cut', 'copy']) for (const where of ['start', 'end']) {

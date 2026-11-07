@@ -107,7 +107,7 @@ class Page {
     const text = name === 'Enter' ? '\r' : undefined
     for (const type of [text ? 'keyDown' : 'rawKeyDown', 'keyUp'])
       await this.session.send('Input.dispatchKeyEvent', {type, key: name, code: name, windowsVirtualKeyCode: code,
-        nativeVirtualKeyCode: code, modifiers, commands, ...(type === 'keyDown' ? {text} : {})})
+        nativeVirtualKeyCode: code, modifiers, commands: name === 'Enter' && modifiers === 8 && type === 'keyDown' ? ['insertLineBreak'] : commands, ...(type === 'keyDown' ? {text} : {})})
   }
   async shortcut(name) {
     const [key, code, vk, command, extra = 0] = SHORTCUTS[name]
